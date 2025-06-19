@@ -1,0 +1,39 @@
+name: Scrape Statengeneraal Digitaal
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 2 * * *"  # every day at 02:15 UTC
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run SGD scraper
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python sgd_scraper.py
+
+      - name: Commit JSONL file
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/statengeneraal_digitaal.jsonl
+          git commit -m "SGD update $(date -u +%F)" || echo "No changes"
+          git push
