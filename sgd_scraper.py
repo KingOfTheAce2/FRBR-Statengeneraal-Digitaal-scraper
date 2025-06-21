@@ -1,108 +1,116 @@
 #!/usr/bin/env python3
+"""Simplified scraper for the Statengeneraal Digitaal collection.
+
+The script traverses listing pages on repository.overheid.nl and downloads
+all OCR XML files. For each XML file the plain text content and XML tag
+names are extracted. Output is written to ``data/statengeneraal_digitaal.jsonl``
+as one JSON record per file.
+
+This implementation uses only the Python standard library so it can run in
+restricted environments.
 """
-Scraper for Statengeneraal Digitaal collection (SGD).
-Output: JSONL file with url, plain-text content, and fixed source.
-"""
-import os, json, datetime as dt
+
+import json
 from pathlib import Path
-import requests
-from lxml import etree
-from bs4 import BeautifulSoup
-from huggingface_hub import HfApi
+from html.parser import HTMLParser
+from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
-HF_REPO = "vGassen/Dutch-Statengeneraal-Digitaal-Historical"
+BASE_URL = "https://repository.overheid.nl"
+LIST_PATH = "/frbr/sgd"
 OUT_PATH = Path("data/statengeneraal_digitaal.jsonl")
-COLLECTION_ID = "sgd"
-SRU_URL = "https://repository.overheid.nl/sru"
+USER_AGENT = "sgd-scraper"
 
-SESSION = requests.Session()
-SESSION.headers["User-Agent"] = "sgd-scraper"
-SESSION.timeout = (10, 30)
+def fetch_url(url: str) -> bytes:
+    """Retrieve a URL and return the raw bytes."""
+    req = Request(url, headers={"User-Agent": USER_AGENT})
+    with urlopen(req, timeout=30) as resp:
+        return resp.read()
 
-def search_identifiers(date: str) -> list[str]:
-    query = f'c.product-area=={COLLECTION_ID} AND dt.modified=="{date}"'
-    params = {
-        "operation": "searchRetrieve",
-        "version": "2.0",
-        "maximumRecords": "1000",
-        "recordSchema": "gzd",
-        "query": query
-    }
-    r = SESSION.get(SRU_URL, params=params)
-    r.raise_for_status()
-    root = etree.fromstring(r.content)
-    return [el.text for el in root.findall(".//{*}identifier") if el.text]
+class LinkParser(HTMLParser):
+    """Collect all ``href`` values from anchor tags."""
 
-def fetch_sru(identifier: str) -> etree._Element:
-    params = {
-        "operation": "searchRetrieve",
-        "version": "2.0",
-        "maximumRecords": "1",
-        "recordSchema": "gzd",
-        "query": f'dt.identifier="{identifier}"'
-    }
-    r = SESSION.get(SRU_URL, params=params)
-    r.raise_for_status()
-    return etree.fromstring(r.content)
+    def __init__(self):
+        super().__init__()
+        self.links: list[str] = []
 
-def extract_manifest_url(root: etree._Element) -> str:
-    for el in root.iterfind(".//{*}itemUrl"):
-        if el.get("manifestation") == "xml":
-            return el.text
-    raise ValueError("No XML manifestation found")
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str]]):
+        if tag == "a":
+            for name, value in attrs:
+                if name == "href" and value:
+                    self.links.append(value)
 
-def extract_preferred_url(root: etree._Element) -> str | None:
-    el = root.find(".//{*}prefferedUrl")
-    return el.text if el is not None else None
 
-def plain_text_from_xml(xml_bytes: bytes) -> str:
-    soup = BeautifulSoup(xml_bytes, "lxml-xml")
-    for tag in soup.select("meta, head, style, script"):
-        tag.decompose()
-    return "\n".join(s.strip() for s in soup.stripped_strings)
+def parse_links(html: bytes) -> list[str]:
+    parser = LinkParser()
+    parser.feed(html.decode(errors="ignore"))
+    return parser.links
 
-def main():
-    scrape_date = os.getenv("SCRAPE_DATE", dt.date.today().isoformat())
+
+def plain_text_from_xml(xml_bytes: bytes) -> tuple[str, list[str]]:
+    """Return plain text and list of tag names from an XML document."""
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return "", []
+
+    texts = []
+    tags: set[str] = set()
+    for el in root.iter():
+        tags.add(el.tag)
+        if el.text and el.text.strip():
+            texts.append(el.text.strip())
+    return "\n".join(texts), sorted(tags)
+
+
+def iter_xml_urls(start_path: str = LIST_PATH) -> list[str]:
+    """Breadth-first crawl under ``start_path`` and yield OCR XML URLs."""
+    seen: set[str] = set()
+    queue: list[str] = [f"{BASE_URL}{start_path}"]
+    while queue:
+        url = queue.pop(0)
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            html = fetch_url(url)
+        except Exception as exc:
+            print(f"Failed to fetch {url}: {exc}")
+            continue
+        for href in parse_links(html):
+            # Make absolute URL relative to the current page
+            if href.startswith("http://") or href.startswith("https://"):
+                abs_url = href
+            else:
+                abs_url = f"{url.rstrip('/')}/{href.lstrip('/')}"
+
+            if abs_url.endswith(".xml") or abs_url.endswith(".xmlxml"):
+                yield abs_url
+            elif abs_url.startswith(f"{BASE_URL}{LIST_PATH}") and abs_url not in seen:
+                # continue crawling within the collection
+                queue.append(abs_url)
+
+
+def main() -> None:
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     written = 0
-
-    try:
-        identifiers = search_identifiers(scrape_date)
-    except Exception as e:
-        print(f"Failed to query SGD for {scrape_date}: {e}")
-        return
-
-    with OUT_PATH.open("a", encoding="utf-8") as fh:
-        for identifier in identifiers:
+    with OUT_PATH.open("w", encoding="utf-8") as fh:
+        for xml_url in iter_xml_urls():
             try:
-                root = fetch_sru(identifier)
-                manifest_url = extract_manifest_url(root)
-                manifest_xml = SESSION.get(manifest_url).content
-                text = plain_text_from_xml(manifest_xml)
-                url = extract_preferred_url(root) or manifest_url
-
+                xml_bytes = fetch_url(xml_url)
+                text, tags = plain_text_from_xml(xml_bytes)
                 record = {
-                    "url": url,
+                    "url": xml_url,
                     "content": text,
-                    "source": "Statengeneraal Digitaal"
+                    "tags": tags,
+                    "source": "Statengeneraal Digitaal",
                 }
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
                 written += 1
-            except Exception as e:
-                print(f"Failed on {identifier}: {e}")
+            except Exception as exc:
+                print(f"Failed on {xml_url}: {exc}")
+    print(f"SGD: wrote {written} items")
 
-    print(f"SGD: wrote {written} items for {scrape_date}")
-
-    if os.getenv("HF_TOKEN"):
-        HfApi().upload_file(
-            path_or_fileobj=str(OUT_PATH),
-            path_in_repo=OUT_PATH.name,
-            repo_id=HF_REPO,
-            repo_type="dataset",
-            token=os.getenv("HF_TOKEN"),
-            commit_message=f"Update {scrape_date} ({written} items)"
-        )
-        print("Uploaded to Hugging Face.")
 
 if __name__ == "__main__":
     main()
