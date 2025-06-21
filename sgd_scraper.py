@@ -18,7 +18,6 @@ import xml.etree.ElementTree as ET
 
 BASE_URL = "https://repository.overheid.nl"
 LIST_PATH = "/frbr/sgd"
-TOTAL_PAGES = 22
 OUT_PATH = Path("data/statengeneraal_digitaal.jsonl")
 USER_AGENT = "sgd-scraper"
 
@@ -64,26 +63,32 @@ def plain_text_from_xml(xml_bytes: bytes) -> tuple[str, list[str]]:
     return "\n".join(texts), sorted(tags)
 
 
-def iter_xml_urls() -> list[str]:
-    """Yield OCR XML file URLs from all listing pages."""
-    for page in range(1, TOTAL_PAGES + 1):
-        list_url = f"{BASE_URL}{LIST_PATH}?page={page}"
+def iter_xml_urls(start_path: str = LIST_PATH) -> list[str]:
+    """Breadth-first crawl under ``start_path`` and yield OCR XML URLs."""
+    seen: set[str] = set()
+    queue: list[str] = [f"{BASE_URL}{start_path}"]
+    while queue:
+        url = queue.pop(0)
+        if url in seen:
+            continue
+        seen.add(url)
         try:
-            html = fetch_url(list_url)
+            html = fetch_url(url)
         except Exception as exc:
-            print(f"Failed to fetch {list_url}: {exc}")
+            print(f"Failed to fetch {url}: {exc}")
             continue
         for href in parse_links(html):
-            if href.startswith("/frbr/sgd/") and href.endswith("/ocr"):
-                ocr_url = f"{BASE_URL}{href}"
-                try:
-                    ocr_html = fetch_url(ocr_url)
-                except Exception as exc:
-                    print(f"Failed to fetch {ocr_url}: {exc}")
-                    continue
-                for link in parse_links(ocr_html):
-                    if link.endswith(".xml") or link.endswith(".xmlxml"):
-                        yield f"{BASE_URL}{link}"
+            # Make absolute URL relative to the current page
+            if href.startswith("http://") or href.startswith("https://"):
+                abs_url = href
+            else:
+                abs_url = f"{url.rstrip('/')}/{href.lstrip('/')}"
+
+            if abs_url.endswith(".xml") or abs_url.endswith(".xmlxml"):
+                yield abs_url
+            elif abs_url.startswith(f"{BASE_URL}{LIST_PATH}") and abs_url not in seen:
+                # continue crawling within the collection
+                queue.append(abs_url)
 
 
 def main() -> None:
