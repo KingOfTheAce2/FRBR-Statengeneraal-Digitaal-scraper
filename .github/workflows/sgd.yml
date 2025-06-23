@@ -1,19 +1,26 @@
-name: Scrape Statengeneraal Digitaal
+name: Scrape Statengeneraal Digitaal OCR
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "15 2 * * *"  # every day at 02:15 UTC
-
-permissions:
-  contents: write
-  id-token: write
+    inputs:
+      hf_repo:
+        description: "Target Hugging Face dataset repo (e.g. username/sgd-ocr)"
+        required: true
+        default: "username/sgd-ocr"
+      private:
+        description: "Make the dataset private? (true/false)"
+        required: false
+        default: "false"
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}          # <-- add this secret in repo settings
+      HF_DATASET_REPO: ${{ github.event.inputs.hf_repo }}
+      HF_PRIVATE: ${{ github.event.inputs.private }}
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -23,17 +30,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 lxml datasets tqdm
 
-      - name: Run SGD scraper
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python sgd_scraper.py
-
-      - name: Commit JSONL file
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/statengeneraal_digitaal.jsonl
-          git commit -m "SGD update $(date -u +%F)" || echo "No changes"
-          git push
+      - name: Run scraper
+        run: python main.py
