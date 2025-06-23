@@ -63,18 +63,18 @@ def strip_xml(xml_bytes: bytes) -> str:
 
 
 def discover_subarea_paths() -> List[str]:
-    """Return list of /frbr/sgd/<year> subarea paths."""
-    paths = []
+    """Return list of /frbr/sgd/<subarea> paths."""
+    paths: List[str] = []
     page = 0
     while True:
         path = f"{ROOT_PATH}?start={page*11}" if page else ROOT_PATH
         soup = fetch_soup(path)
-        year_links = soup.select("ul.list-group li a[href^='/frbr/sgd/']")
-        if not year_links:
+        links = soup.select("a[href^='/frbr/sgd/']")
+        if not links:
             break
-        for a in year_links:
-            href = a["href"]
-            if href.count("/") == 3:  # /frbr/sgd/<year>
+        for a in links:
+            href = a["href"].split("?")[0].rstrip("/")
+            if href.count("/") == 3 and href not in paths:
                 paths.append(href)
         page += 1
         time.sleep(SLEEP)
@@ -83,8 +83,8 @@ def discover_subarea_paths() -> List[str]:
 
 
 def discover_document_paths(subarea_path: str) -> List[str]:
-    """Return list of /frbr/sgd/<year>/<docid> paths within a subarea."""
-    paths = []
+    """Return list of /frbr/sgd/<subarea>/<docid> paths within a subarea."""
+    paths: List[str] = []
     start = 0
     while True:
         page_path = f"{subarea_path}?start={start}" if start else subarea_path
@@ -93,9 +93,9 @@ def discover_document_paths(subarea_path: str) -> List[str]:
         if not doc_links:
             break
         for a in doc_links:
-            href = a["href"]
+            href = a["href"].split("?")[0].rstrip("/")
             # Ensure it is a document page (four segments)
-            if href.count("/") == 4:
+            if href.count("/") == 4 and href not in paths:
                 paths.append(href)
         start += 11
         time.sleep(SLEEP)
