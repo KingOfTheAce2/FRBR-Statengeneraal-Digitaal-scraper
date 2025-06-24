@@ -1,17 +1,18 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+"""crawler_for_sgd.py
+
 Crawl Statengeneraal Digitaal (https://repository.overheid.nl/frbr/sgd)
 and push OCR XML text to a Hugging Face dataset.
 
-Designed to run *only* inside GitHub Actions.  
-Requires the following environment variables:
+Designed to run *only* inside GitHub Actions. Requires the following
+environment variables:
 
 - HF_TOKEN          – Hugging Face token with write access
 - HF_DATASET_REPO   – e.g. "my-org/sgd-ocr"
 - HF_PRIVATE        – "true" or "false" (optional; default false)
 
-Dependencies (installed in the workflow):
+Dependencies are installed in the workflow:
   requests, beautifulsoup4, lxml, datasets, tqdm
 """
 

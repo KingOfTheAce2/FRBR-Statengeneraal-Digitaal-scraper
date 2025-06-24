@@ -34,4 +34,4 @@ jobs:
           pip install requests beautifulsoup4 lxml datasets tqdm
 
       - name: Run scraper
-        run: python main.py
+        run: python crawler_for_sgd.py
