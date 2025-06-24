@@ -32,7 +32,7 @@ from requests.adapters import HTTPAdapter, Retry
 BASE_URL = "https://repository.overheid.nl"
 ROOT_PATH = "/frbr/sgd"
 HEADERS = {
-    "User-Agent": "ESJ-GitHubActions-OCR-Scraper/1.0 (+https://github.com/esj)"
+    "User-Agent": "SDG-GitHubActions-OCR-Scraper"
 }
 SLEEP = 0.2  # polite crawl delay (seconds)
 PAGE_RETRIES = Retry(
