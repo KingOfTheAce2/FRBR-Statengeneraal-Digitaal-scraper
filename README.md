@@ -16,11 +16,15 @@ environment variables:
 Run the crawler locally or inside the workflow:
 
 ```bash
-python crawler_for_sgd.py
+python crawler_for_sgd.py --max-items 1000 --delay 0.5 --resume
 ```
 
-The script is intentionally limited to processing at most 500 OCR XML files per
-run to avoid long execution times in CI environments.
+Use `--max-items` and `--delay` to control crawl size and politeness. The
+`--resume` flag continues from a previous run using `visited.txt`.
+
+By default the crawler processes at most 500 XML files with a 0.2 second delay
+between requests.
+
 
 OCR data is retrieved via the service's ZIP archives when possible to minimise
 the number of HTTP requests.
