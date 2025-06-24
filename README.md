@@ -19,6 +19,9 @@ Run the crawler locally or inside the workflow:
 python crawler_for_sgd.py
 ```
 
+The script is intentionally limited to processing at most 500 OCR XML files per
+run to avoid long execution times in CI environments.
+
 See `.github/workflows/sgd.yml` for a complete example.
 
 ## Dependencies

@@ -31,9 +31,16 @@ from requests.adapters import HTTPAdapter, Retry
 
 BASE_URL = "https://repository.overheid.nl"
 ROOT_PATH = "/frbr/sgd"
-HEADERS = {"User-Agent": "ESJ-GitHubActions-OCR-Scraper/1.0 (+https://github.com/esj)"}
+HEADERS = {
+    "User-Agent": "ESJ-GitHubActions-OCR-Scraper/1.0 (+https://github.com/esj)"
+}
 SLEEP = 0.2  # polite crawl delay (seconds)
-PAGE_RETRIES = Retry(total=5, backoff_factor=1.5, status_forcelist=[500, 502, 503, 504])
+PAGE_RETRIES = Retry(
+    total=5,
+    backoff_factor=1.5,
+    status_forcelist=[500, 502, 503, 504],
+)
+MAX_ITEMS = 500  # cap the crawl to avoid CI timeouts
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO
@@ -117,13 +124,16 @@ def discover_ocr_xml_urls(doc_path: str) -> List[str]:
     return urls
 
 
-def records_stream() -> Dict[str, str]:
+def records_stream(limit: int | None = None) -> Dict[str, str]:
     """Generator yielding dataset records matching the required schema."""
     subareas = discover_subarea_paths()
+    grabbed = 0
     for sub_path in subareas:
         for doc_path in discover_document_paths(sub_path):
             xml_urls = discover_ocr_xml_urls(doc_path)
             for url in xml_urls:
+                if limit is not None and grabbed >= limit:
+                    return
                 try:
                     resp = session.get(url, timeout=60)
                     resp.raise_for_status()
@@ -133,6 +143,7 @@ def records_stream() -> Dict[str, str]:
                         "content": content,
                         "source": "Statengeneraal Digitaal",
                     }
+                    grabbed += 1
                 except Exception as exc:
                     logging.error("Failed %s: %s", url, exc)
                 finally:
@@ -154,7 +165,7 @@ def push_dataset():
 
     chunk, chunk_size = [], 1000
     total = 0
-    for rec in tqdm(records_stream(), desc="Processing"):
+    for rec in tqdm(records_stream(limit=MAX_ITEMS), desc="Processing"):
         chunk.append(rec)
         if len(chunk) >= chunk_size:
             _push_chunk(chunk, features, hf_repo, token, private)
