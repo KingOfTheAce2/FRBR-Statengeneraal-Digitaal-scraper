@@ -1,12 +1,14 @@
 name: Scrape Statengeneraal Digitaal OCR
 
 on:
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       hf_repo:
         description: "Target Hugging Face dataset repo (e.g. username/sgd-ocr)"
         required: true
-        default: "username/sgd-ocr"
+        default: "vGassen/Dutch-Statengeneraal-Digitaal-Historical"
       private:
         description: "Make the dataset private? (true/false)"
         required: false
@@ -17,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}          # <-- add this secret in repo settings
-      HF_DATASET_REPO: ${{ github.event.inputs.hf_repo }}
-      HF_PRIVATE: ${{ github.event.inputs.private }}
+      HF_DATASET_REPO: ${{ github.event.inputs.hf_repo || 'vGassen/Dutch-Statengeneraal-Digitaal-Historical' }}
+      HF_PRIVATE: ${{ github.event.inputs.private || 'false' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,5 +35,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 lxml datasets tqdm
 
+      - name: Restore progress
+        uses: actions/cache@v4
+        with:
+          path: visited.txt
+          key: visited-${{ github.run_id }}
+          restore-keys: visited-
+
       - name: Run scraper
-        run: python crawler_for_sgd.py
+        run: python crawler_for_sgd.py --resume
