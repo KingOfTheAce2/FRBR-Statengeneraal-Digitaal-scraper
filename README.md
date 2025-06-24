@@ -22,6 +22,9 @@ python crawler_for_sgd.py
 The script is intentionally limited to processing at most 500 OCR XML files per
 run to avoid long execution times in CI environments.
 
+OCR data is retrieved via the service's ZIP archives when possible to minimise
+the number of HTTP requests.
+
 See `.github/workflows/sgd.yml` for a complete example.
 
 ## Dependencies

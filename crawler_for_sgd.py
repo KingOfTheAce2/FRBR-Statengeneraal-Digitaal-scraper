@@ -20,7 +20,9 @@ import os
 import time
 import logging
 from pathlib import PurePosixPath
-from typing import List, Dict
+from typing import List, Dict, Iterator
+from io import BytesIO
+from zipfile import ZipFile
 
 import requests
 from bs4 import BeautifulSoup
@@ -70,9 +72,9 @@ def strip_xml(xml_bytes: bytes) -> str:
     return " ".join(chunk.strip() for chunk in text_iter if chunk.strip())
 
 
-def discover_subarea_paths() -> List[str]:
-    """Return list of /frbr/sgd/<subarea> paths."""
-    paths: List[str] = []
+def iter_subarea_paths() -> Iterator[str]:
+    """Yield /frbr/sgd/<subarea> paths as they are discovered."""
+    seen: set[str] = set()
     page = 0
     while True:
         path = f"{ROOT_PATH}?start={page*11}" if page else ROOT_PATH
@@ -82,17 +84,16 @@ def discover_subarea_paths() -> List[str]:
             break
         for a in links:
             href = a["href"].split("?")[0].rstrip("/")
-            if href.count("/") == 3 and href not in paths:
-                paths.append(href)
+            if href.count("/") == 3 and href not in seen:
+                seen.add(href)
+                yield href
         page += 1
         time.sleep(SLEEP)
-    logging.info("Discovered %d subareas", len(paths))
-    return paths
 
 
-def discover_document_paths(subarea_path: str) -> List[str]:
-    """Return list of /frbr/sgd/<subarea>/<docid> paths within a subarea."""
-    paths: List[str] = []
+def iter_document_paths(subarea_path: str) -> Iterator[str]:
+    """Yield /frbr/sgd/<subarea>/<docid> paths within a subarea."""
+    seen: set[str] = set()
     start = 0
     while True:
         page_path = f"{subarea_path}?start={start}" if start else subarea_path
@@ -102,52 +103,62 @@ def discover_document_paths(subarea_path: str) -> List[str]:
             break
         for a in doc_links:
             href = a["href"].split("?")[0].rstrip("/")
-            # Ensure it is a document page (four segments)
-            if href.count("/") == 4 and href not in paths:
-                paths.append(href)
+            if href.count("/") == 4 and href not in seen:
+                seen.add(href)
+                yield href
         start += 11
         time.sleep(SLEEP)
-    logging.info("%s → %d docs", subarea_path, len(paths))
-    return paths
 
 
-def discover_ocr_xml_urls(doc_path: str) -> List[str]:
-    """Return list of full URLs to OCR XML files for one document."""
+def iter_ocr_xml(doc_path: str) -> Iterator[tuple[str, bytes]]:
+    """Yield ``(url, xml_bytes)`` tuples for OCR XML files of a document."""
+    expr_zip = f"{doc_path}/1?format=zip"
+    try:
+        resp = session.get(f"{BASE_URL}{expr_zip}", timeout=60)
+        resp.raise_for_status()
+        with ZipFile(BytesIO(resp.content)) as z:
+            for name in z.namelist():
+                if name.lower().endswith(".xml"):
+                    yield (f"{BASE_URL}{expr_zip}#{name}", z.read(name))
+        return
+    except Exception as exc:
+        logging.warning("ZIP failed for %s: %s", expr_zip, exc)
+
     expr_path = f"{doc_path}/1"
     soup = fetch_soup(expr_path)
     ocr_link = soup.find("a", href=lambda h: h and h.endswith("/ocr"))
     if not ocr_link:
-        return []
+        return
     soup_ocr = fetch_soup(ocr_link["href"])
     xml_links = soup_ocr.select("a[href$='.xml']")
-    urls = [f"{BASE_URL}{a['href']}" for a in xml_links]
-    return urls
+    for a in xml_links:
+        url = f"{BASE_URL}{a['href']}"
+        try:
+            resp = session.get(url, timeout=60)
+            resp.raise_for_status()
+            yield (url, resp.content)
+        except Exception as exc:
+            logging.error("Failed %s: %s", url, exc)
+        finally:
+            time.sleep(SLEEP)
 
 
-def records_stream(limit: int | None = None) -> Dict[str, str]:
-    """Generator yielding dataset records matching the required schema."""
-    subareas = discover_subarea_paths()
+def records_stream(limit: int | None = None) -> Iterator[Dict[str, str]]:
+    """Yield dataset records matching the required schema."""
     grabbed = 0
-    for sub_path in subareas:
-        for doc_path in discover_document_paths(sub_path):
-            xml_urls = discover_ocr_xml_urls(doc_path)
-            for url in xml_urls:
+    for sub_path in iter_subarea_paths():
+        for doc_path in iter_document_paths(sub_path):
+            for url, xml_bytes in iter_ocr_xml(doc_path):
                 if limit is not None and grabbed >= limit:
                     return
-                try:
-                    resp = session.get(url, timeout=60)
-                    resp.raise_for_status()
-                    content = strip_xml(resp.content)
-                    yield {
-                        "url": url,
-                        "content": content,
-                        "source": "Statengeneraal Digitaal",
-                    }
-                    grabbed += 1
-                except Exception as exc:
-                    logging.error("Failed %s: %s", url, exc)
-                finally:
-                    time.sleep(SLEEP)
+                content = strip_xml(xml_bytes)
+                yield {
+                    "url": url,
+                    "content": content,
+                    "source": "Statengeneraal Digitaal",
+                }
+                grabbed += 1
+                time.sleep(SLEEP)
 
 
 def push_dataset():
