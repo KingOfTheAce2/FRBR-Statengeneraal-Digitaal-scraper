@@ -25,6 +25,9 @@ Use `--max-items` and `--delay` to control crawl size and politeness. The
 By default the crawler processes at most 500 XML files with a 0.2 second delay
 between requests.
 
+Each HTTP request has a 15 second timeout and is retried twice. This prevents
+the workflow from hanging indefinitely when the server is unresponsive.
+
 
 OCR data is retrieved via the service's ZIP archives when possible to minimise
 the number of HTTP requests.

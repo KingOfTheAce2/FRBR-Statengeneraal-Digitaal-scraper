@@ -40,10 +40,11 @@ HEADERS = {
 }
 DEFAULT_DELAY = 0.2  # polite crawl delay (seconds)
 PAGE_RETRIES = Retry(
-    total=5,
-    backoff_factor=1.5,
+    total=2,
+    backoff_factor=1.0,
     status_forcelist=[500, 502, 503, 504],
 )
+REQUEST_TIMEOUT = 15  # seconds per request
 DEFAULT_MAX_ITEMS = 500  # cap the crawl to avoid CI timeouts
 VISITED_FILE = "visited.txt"
 
@@ -65,7 +66,7 @@ class BaseCrawler:
         """GET a path relative to BASE_URL and return BeautifulSoup."""
         url = f"{BASE_URL}{path}"
         for attempt in range(3):
-            resp = self.session.get(url, timeout=30)
+            resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
             if resp.ok:
                 return BeautifulSoup(resp.text, "lxml")
             logging.warning("Retry %s for %s (%s)", attempt, url, resp.status_code)
