@@ -1,6 +1,9 @@
 name: Scrape Statengeneraal Digitaal OCR
 
 on:
+schedule:
+    # every half-hour: at minute 0 and 30 of every hour
+    - cron: '*/30 * * * *'
   workflow_dispatch:
     inputs:
       hf_repo:
