@@ -29,8 +29,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore crawl cache
+        uses: actions/cache@v3
+        with:
+          path: visited.txt
+          key: visited-${{ github.run_id }}
+          restore-keys: visited-
+
       - name: Run crawler script
-        run: python scripts/sgd_crawler.py
+        run: python scripts/sgd_crawler.py --resume
 
       - name: Commit and push changes
         run: |
