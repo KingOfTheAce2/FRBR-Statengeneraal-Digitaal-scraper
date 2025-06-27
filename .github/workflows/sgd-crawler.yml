@@ -23,7 +23,7 @@ jobs:
           cache: 'pip' # cache pip dependencies
 
       - name: Install dependencies
-        run: pip install requests lxml pandas tqdm
+        run: pip install -r requirements.txt
 
       - name: Run crawler script
         run: python scripts/sgd_crawler.py
@@ -34,7 +34,7 @@ jobs:
           git config --global user.email 'github-actions@github.com'
           # Check if there are changes to commit
           if [ -n "$(git status --porcelain)" ]; then
-            git add data/
+            git add data/*.jsonl
             git commit -m "Data: Add new batch from Statengeneraal Digitaal"
             git push
           else
