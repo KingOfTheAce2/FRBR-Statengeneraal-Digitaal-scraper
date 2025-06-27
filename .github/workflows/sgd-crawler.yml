@@ -43,11 +43,14 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'github-actions@github.com'
-          # Check if there are changes to commit
-          if [ -n "$(git status --porcelain)" ]; then
-            git add data/*.jsonl || true
-            git commit -m "Data: Add new batch from Statengeneraal Digitaal"
-            git push
+          if ls data/*.jsonl >/dev/null 2>&1; then
+            git add data/*.jsonl
+            if [ -n "$(git status --porcelain)" ]; then
+              git commit -m "Data: Add new batch from Statengeneraal Digitaal"
+              git push
+            else
+              echo "No new data to commit."
+            fi
           else
-            echo "No new data to commit."
+            echo "No batch files to commit."
           fi
