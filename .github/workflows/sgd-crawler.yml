@@ -1,0 +1,42 @@
+# .github/workflows/sgd-crawler.yml
+
+name: Crawl Statengeneraal Digitaal
+
+on:
+  schedule:
+    # Runs daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  crawl-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip' # cache pip dependencies
+
+      - name: Install dependencies
+        run: pip install requests lxml pandas tqdm
+
+      - name: Run crawler script
+        run: python scripts/sgd_crawler.py
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'github-actions@github.com'
+          # Check if there are changes to commit
+          if [ -n "$(git status --porcelain)" ]; then
+            git add data/
+            git commit -m "Data: Add new batch from Statengeneraal Digitaal"
+            git push
+          else
+            echo "No new data to commit."
+          fi
