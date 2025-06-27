@@ -9,6 +9,7 @@ import json
 from tqdm import tqdm
 import time
 from urllib.parse import urljoin
+from datasets import Dataset, Features, Value, concatenate_datasets
 
 # Base URL for the repository
 BASE_URL = "https://repository.overheid.nl/frbr/sgd"
@@ -108,6 +109,44 @@ def process_work(work_url):
     return extracted_data
 
 
+def push_batches_to_hub(files):
+    """Upload the given batch files to a Hugging Face dataset repo."""
+    hf_repo = os.getenv("HF_DATASET_REPO")
+    token = os.getenv("HF_TOKEN")
+    private = os.getenv("HF_PRIVATE", "false").lower() == "true"
+
+    if not hf_repo or not token:
+        print("HF_DATASET_REPO or HF_TOKEN not set. Skipping push to hub.")
+        return
+
+    datasets_list = []
+    features = Features({
+        "URL": Value("string"),
+        "content": Value("string"),
+        "source": Value("string"),
+    })
+
+    for path in files:
+        with open(path, "r", encoding="utf-8") as f:
+            records = [json.loads(line) for line in f]
+        if records:
+            datasets_list.append(Dataset.from_list(records, features=features))
+
+    if not datasets_list:
+        print("No new records to push.")
+        return
+
+    ds = concatenate_datasets(datasets_list) if len(datasets_list) > 1 else datasets_list[0]
+    ds.push_to_hub(
+        repo_id=hf_repo,
+        token=token,
+        split="train",
+        private=private,
+        max_shard_size="500MB",
+    )
+    print(f"Pushed {len(ds)} records to {hf_repo}")
+
+
 def main():
     """
     Main function to orchestrate the crawling process.
@@ -118,6 +157,7 @@ def main():
     print("Starting crawl of Statengeneraal Digitaal...")
     all_docs = []
     batch_counter = 1
+    new_files = []
 
     year_urls = get_year_links()
     if not year_urls:
@@ -141,6 +181,7 @@ def main():
                         json.dump(item, f, ensure_ascii=False)
                         f.write("\n")
                 print(f"Saved batch to {filename}")
+                new_files.append(filename)
                 all_docs = []
                 batch_counter += 1
             
@@ -155,8 +196,11 @@ def main():
                 json.dump(item, f, ensure_ascii=False)
                 f.write("\n")
         print(f"Saved final batch to {filename}")
+        new_files.append(filename)
 
     print("Crawling finished.")
+    if new_files:
+        push_batches_to_hub(new_files)
 
 if __name__ == "__main__":
     main()

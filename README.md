@@ -28,6 +28,9 @@ between requests.
 The crawler writes newline-delimited JSON batches to the `data/` directory,
 producing files like `sgd_batch_001.jsonl`.
 
+When `HF_TOKEN` and `HF_DATASET_REPO` are provided, newly created batches are
+automatically uploaded to the specified Hugging Face dataset repository.
+
 Each HTTP request has a 15 second timeout and is retried twice. This prevents
 the workflow from hanging indefinitely when the server is unresponsive.
 
