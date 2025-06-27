@@ -45,7 +45,7 @@ jobs:
           git config --global user.email 'github-actions@github.com'
           # Check if there are changes to commit
           if [ -n "$(git status --porcelain)" ]; then
-            git add data/*.jsonl
+            git add data/*.jsonl || true
             git commit -m "Data: Add new batch from Statengeneraal Digitaal"
             git push
           else

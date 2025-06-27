@@ -47,7 +47,7 @@ def get_year_links():
     This is a simple parsing of the main directory page.
     """
     try:
-        response = requests.get(BASE_URL, headers=HEADERS)
+        response = requests.get(BASE_URL, headers=HEADERS, timeout=15)
         response.raise_for_status()
         # A simple way to find links that look like years
         links = etree.HTML(response.content).xpath('//a/@href')
@@ -67,7 +67,7 @@ def get_work_links(year_url):
     Fetches links to the individual 'works' for a given year.
     """
     try:
-        response = requests.get(year_url, headers=HEADERS)
+        response = requests.get(year_url, headers=HEADERS, timeout=15)
         response.raise_for_status()
         links = etree.HTML(response.content).xpath('//a/@href')
         work_links = []
@@ -94,7 +94,7 @@ def process_work(work_url):
     extracted_data = []
 
     try:
-        response = requests.get(zip_url, headers=HEADERS, stream=True)
+        response = requests.get(zip_url, headers=HEADERS, stream=True, timeout=15)
         response.raise_for_status()
 
         with zipfile.ZipFile(io.BytesIO(response.content)) as z:
