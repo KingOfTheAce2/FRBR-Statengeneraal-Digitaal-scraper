@@ -5,7 +5,7 @@ import requests
 import zipfile
 import io
 from lxml import etree
-import pandas as pd
+import json
 from tqdm import tqdm
 import time
 from urllib.parse import urljoin
@@ -135,9 +135,11 @@ def main():
             all_docs.extend(docs)
 
             if len(all_docs) >= BATCH_SIZE:
-                df = pd.DataFrame(all_docs)
-                filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.csv")
-                df.to_csv(filename, index=False)
+                filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
+                with open(filename, "w", encoding="utf-8") as f:
+                    for item in all_docs:
+                        json.dump(item, f, ensure_ascii=False)
+                        f.write("\n")
                 print(f"Saved batch to {filename}")
                 all_docs = []
                 batch_counter += 1
@@ -147,9 +149,11 @@ def main():
 
     # Save any remaining documents
     if all_docs:
-        df = pd.DataFrame(all_docs)
-        filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.csv")
-        df.to_csv(filename, index=False)
+        filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
+        with open(filename, "w", encoding="utf-8") as f:
+            for item in all_docs:
+                json.dump(item, f, ensure_ascii=False)
+                f.write("\n")
         print(f"Saved final batch to {filename}")
 
     print("Crawling finished.")

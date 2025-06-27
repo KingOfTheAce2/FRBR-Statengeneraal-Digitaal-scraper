@@ -16,7 +16,7 @@ environment variables:
 Run the crawler locally or inside the workflow:
 
 ```bash
-python crawler_for_sgd.py --max-items 1000 --delay 0.5 --resume
+python scripts/sgd_crawler.py --max-items 1000 --delay 0.5 --resume
 ```
 
 Use `--max-items` and `--delay` to control crawl size and politeness. The
@@ -24,6 +24,9 @@ Use `--max-items` and `--delay` to control crawl size and politeness. The
 
 By default the crawler processes at most 500 XML files with a 0.2 second delay
 between requests.
+
+The crawler writes newline-delimited JSON batches to the `data/` directory,
+producing files like `sgd_batch_001.jsonl`.
 
 Each HTTP request has a 15 second timeout and is retried twice. This prevents
 the workflow from hanging indefinitely when the server is unresponsive.
