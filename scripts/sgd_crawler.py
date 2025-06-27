@@ -8,6 +8,7 @@ from lxml import etree
 import pandas as pd
 from tqdm import tqdm
 import time
+from urllib.parse import urljoin
 
 # Base URL for the repository
 BASE_URL = "https://repository.overheid.nl/frbr/sgd"
@@ -53,9 +54,9 @@ def get_work_links(year_url):
         links = etree.HTML(response.content).xpath('//a/@href')
         work_links = []
         for link in links:
-            # Works are subdirectories of the year URL
-            if link.startswith(year_url) and link != year_url:
-                work_links.append(link)
+            full_link = urljoin(year_url, link)
+            if full_link.startswith(year_url) and full_link != year_url:
+                work_links.append(full_link)
         return sorted(list(set(work_links)))
     except requests.exceptions.RequestException as e:
         print(f"Error fetching work links from {year_url}: {e}")
