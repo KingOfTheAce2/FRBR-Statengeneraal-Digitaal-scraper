@@ -1,1 +1,17 @@
+# .gitignore
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# IDE files
+.vscode/
+.idea/
+
+# Data - if you decide not to commit it
+# data/
