@@ -1,6 +1,7 @@
 # scripts/sgd_crawler.py
 
 import os
+import argparse
 import requests
 import zipfile
 import io
@@ -19,10 +20,26 @@ SOURCE_NAME = "Statengeneraal Digitaal"
 DATA_DIR = "data"
 # Number of documents to save per file
 BATCH_SIZE = 500
+# File to store processed work URLs
+VISITED_FILE = "visited.txt"
 # User-Agent to identify the crawler
 HEADERS = {
     'User-Agent': 'vGassen/Dutch-Statengeneraal-Digitaal-Historical Crawler'
 }
+
+
+def load_visited(path=VISITED_FILE):
+    """Return a set of previously processed work URLs."""
+    if not os.path.exists(path):
+        return set()
+    with open(path, "r", encoding="utf-8") as f:
+        return set(line.strip() for line in f if line.strip())
+
+
+def save_visited(url, path=VISITED_FILE):
+    """Append a processed work URL to the visited file."""
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(url + "\n")
 
 def get_year_links():
     """
@@ -110,14 +127,17 @@ def process_work(work_url):
 
 
 def push_batches_to_hub(files):
-    """Upload the given batch files to a Hugging Face dataset repo."""
+    """Upload the given batch files to a Hugging Face dataset repo.
+
+    Returns True on success, False otherwise.
+    """
     hf_repo = os.getenv("HF_DATASET_REPO")
     token = os.getenv("HF_TOKEN")
     private = os.getenv("HF_PRIVATE", "false").lower() == "true"
 
     if not hf_repo or not token:
         print("HF_DATASET_REPO or HF_TOKEN not set. Skipping push to hub.")
-        return
+        return False
 
     datasets_list = []
     features = Features({
@@ -134,25 +154,40 @@ def push_batches_to_hub(files):
 
     if not datasets_list:
         print("No new records to push.")
-        return
+        return False
 
     ds = concatenate_datasets(datasets_list) if len(datasets_list) > 1 else datasets_list[0]
-    ds.push_to_hub(
-        repo_id=hf_repo,
-        token=token,
-        split="train",
-        private=private,
-        max_shard_size="500MB",
-    )
-    print(f"Pushed {len(ds)} records to {hf_repo}")
+    try:
+        ds.push_to_hub(
+            repo_id=hf_repo,
+            token=token,
+            split="train",
+            private=private,
+            max_shard_size="500MB",
+        )
+        print(f"Pushed {len(ds)} records to {hf_repo}")
+        return True
+    except Exception as e:
+        print(f"Failed to push to hub: {e}")
+        return False
 
 
 def main():
-    """
-    Main function to orchestrate the crawling process.
-    """
+    """Main function to orchestrate the crawling process."""
+    parser = argparse.ArgumentParser(description="Crawl Statengeneraal Digitaal")
+    parser.add_argument("--max-items", type=int, default=500,
+                        help="Maximum number of XML files to process")
+    parser.add_argument("--delay", type=float, default=0.2,
+                        help="Delay between HTTP requests in seconds")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from previous run using visited.txt")
+    args = parser.parse_args()
+
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
+
+    visited = load_visited() if args.resume else set()
+    processed = 0
 
     print("Starting crawl of Statengeneraal Digitaal...")
     all_docs = []
@@ -171,10 +206,17 @@ def main():
     for year_url in tqdm(year_urls, desc="Processing Years"):
         work_links = get_work_links(year_url)
         for work_url in tqdm(work_links, desc=f"Processing Works in {year_url.split('/')[-2]}", leave=False):
+            if processed >= args.max_items:
+                break
+            if work_url in visited:
+                continue
             docs = process_work(work_url)
+            if docs:
+                save_visited(work_url)
+            processed += len(docs)
             all_docs.extend(docs)
 
-            if len(all_docs) >= BATCH_SIZE:
+            if len(all_docs) >= BATCH_SIZE or processed >= args.max_items:
                 filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
                 with open(filename, "w", encoding="utf-8") as f:
                     for item in all_docs:
@@ -184,9 +226,14 @@ def main():
                 new_files.append(filename)
                 all_docs = []
                 batch_counter += 1
-            
+            if processed >= args.max_items:
+                break
+
             # Being a good web citizen
-            time.sleep(0.1) 
+            time.sleep(args.delay)
+
+        if processed >= args.max_items:
+            break
 
     # Save any remaining documents
     if all_docs:
@@ -200,7 +247,9 @@ def main():
 
     print("Crawling finished.")
     if new_files:
-        push_batches_to_hub(new_files)
+        success = push_batches_to_hub(new_files)
+        if not success:
+            print("Failed to push some batches to Hugging Face.")
 
 if __name__ == "__main__":
     main()

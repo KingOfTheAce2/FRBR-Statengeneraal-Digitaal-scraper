@@ -38,8 +38,8 @@ the workflow from hanging indefinitely when the server is unresponsive.
 OCR data is retrieved via the service's ZIP archives when possible to minimise
 the number of HTTP requests.
 
-The included GitHub workflow runs every 30 minutes and keeps track of processed
-files using a cached `visited.txt`. Results are uploaded to the public dataset
+The included GitHub workflow runs daily and keeps track of processed files
+using a cached `visited.txt`. Results are uploaded to the public dataset
 `vGassen/Dutch-Statengeneraal-Digitaal-Historical`.
 
 See `.github/workflows/sgd.yml` for a complete example.
