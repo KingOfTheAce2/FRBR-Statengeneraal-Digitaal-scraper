@@ -21,6 +21,8 @@ python scripts/sgd_crawler.py --max-items 1000 --delay 0.5 --resume
 
 Use `--max-items` and `--delay` to control crawl size and politeness. The
 `--resume` flag continues from a previous run using `visited.txt`.
+Progress is tracked in this file, which is cached between runs and excluded
+from version control.
 
 By default the crawler processes at most 500 XML files with a 0.2 second delay
 between requests.
@@ -43,6 +45,9 @@ using a cached `visited.txt`. Results are uploaded to the public dataset
 `vGassen/Dutch-Statengeneraal-Digitaal-Historical`.
 
 See `.github/workflows/sgd-crawler.yml` for a complete example.
+
+The workflow relies on the default `GITHUB_TOKEN` to push new batches back to
+this repository, so it must have write permissions.
 
 ## Dependencies
 
