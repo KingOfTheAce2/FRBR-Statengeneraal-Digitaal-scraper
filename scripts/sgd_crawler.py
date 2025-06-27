@@ -55,7 +55,12 @@ def get_work_links(year_url):
         work_links = []
         for link in links:
             full_link = urljoin(year_url, link)
-            if full_link.startswith(year_url) and full_link != year_url:
+            if not full_link.startswith(year_url):
+                continue
+            suffix = full_link[len(year_url):].strip('/')
+            if suffix.isdigit():
+                if not full_link.endswith('/'):
+                    full_link += '/'
                 work_links.append(full_link)
         return sorted(list(set(work_links)))
     except requests.exceptions.RequestException as e:
@@ -67,7 +72,7 @@ def process_work(work_url):
     Downloads the zip archive for a work, extracts OCR XML files,
     and returns the formatted data.
     """
-    zip_url = f"{work_url}?format=zip"
+    zip_url = work_url.rstrip('/') + '/?format=zip'
     extracted_data = []
 
     try:
