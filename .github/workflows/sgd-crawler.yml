@@ -37,7 +37,7 @@ jobs:
           restore-keys: visited-
 
       - name: Run crawler script
-        run: python scripts/sgd_crawler.py --resume
+        run: python scripts/sgd_crawler.py --resume --workers 4
 
       - name: Commit and push changes
         run: |

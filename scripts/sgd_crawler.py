@@ -13,6 +13,7 @@ from tqdm import tqdm
 import time
 from urllib.parse import urljoin
 from datasets import Dataset, Features, Value, concatenate_datasets
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Base URL for the repository
 BASE_URL = "https://repository.overheid.nl/frbr/sgd"
@@ -200,6 +201,8 @@ def main():
                         help="Resume from previous run using visited.txt")
     parser.add_argument("--years", type=int, default=2,
                         help="Number of most recent years to crawl (0 for all)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Number of concurrent workers for processing works")
     args = parser.parse_args()
 
     if not os.path.exists(DATA_DIR):
@@ -223,34 +226,39 @@ def main():
         year_urls = year_urls[-args.years:]
 
     for year_url in tqdm(year_urls, desc="Processing Years"):
-        work_links = get_work_links(year_url)
-        for work_url in tqdm(work_links, desc=f"Processing Works in {year_url.split('/')[-2]}", leave=False):
-            if processed >= args.max_items:
-                break
-            if work_url in visited:
-                continue
-            docs, failed = process_work(work_url)
-            save_visited(work_url)
-            if failed:
-                print(f"Failed to fully process {work_url}")
-            processed += len(docs)
-            all_docs.extend(docs)
+        work_links = [w for w in get_work_links(year_url) if w not in visited]
+        if not work_links:
+            continue
 
-            if len(all_docs) >= BATCH_SIZE or processed >= args.max_items:
-                filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
-                with open(filename, "w", encoding="utf-8") as f:
-                    for item in all_docs:
-                        json.dump(item, f, ensure_ascii=False)
-                        f.write("\n")
-                print(f"Saved batch to {filename}")
-                new_files.append(filename)
-                all_docs = []
-                batch_counter += 1
-            if processed >= args.max_items:
-                break
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = {executor.submit(process_work, w): w for w in work_links}
+            for future in tqdm(as_completed(futures), total=len(futures),
+                               desc=f"Processing Works in {year_url.split('/')[-2]}", leave=False):
+                work_url = futures[future]
+                if processed >= args.max_items:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                docs, failed = future.result()
+                save_visited(work_url)
+                if failed:
+                    print(f"Failed to fully process {work_url}")
+                processed += len(docs)
+                all_docs.extend(docs)
 
-            # Being a good web citizen
-            time.sleep(args.delay)
+                if len(all_docs) >= BATCH_SIZE or processed >= args.max_items:
+                    filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
+                    with open(filename, "w", encoding="utf-8") as f:
+                        for item in all_docs:
+                            json.dump(item, f, ensure_ascii=False)
+                            f.write("\n")
+                    print(f"Saved batch to {filename}")
+                    new_files.append(filename)
+                    all_docs = []
+                    batch_counter += 1
+                if processed >= args.max_items:
+                    break
+                if args.delay:
+                    time.sleep(args.delay)
 
         if processed >= args.max_items:
             break
