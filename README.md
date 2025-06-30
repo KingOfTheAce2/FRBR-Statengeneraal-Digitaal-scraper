@@ -23,7 +23,8 @@ python scripts/sgd_crawler.py --max-items 1000 --delay 0.5 --years 5 --resume
 ```
 
 Use `--max-items`, `--delay` and `--years` to control crawl size and
-politeness. The `--resume` flag continues from a previous run using
+politeness. The optional `--workers` argument processes multiple works in
+parallel. The `--resume` flag continues from a previous run using
 `visited.txt`.
 Progress is tracked in this file, which is cached between runs and excluded
 from version control.
