@@ -97,10 +97,11 @@ def get_work_links(year_url):
 def process_work(work_url):
     """
     Downloads the zip archive for a work, extracts OCR XML files,
-    and returns the formatted data.
+    and returns the formatted data along with a failure flag.
     """
     zip_url = work_url.rstrip('/') + '/?format=zip'
     extracted_data = []
+    failed = False
 
     try:
         response = session.get(zip_url, headers=HEADERS, stream=True, timeout=15)
@@ -126,13 +127,16 @@ def process_work(work_url):
                                 })
                         except etree.XMLSyntaxError as e:
                             print(f"Error parsing XML file {filename} in {zip_url}: {e}")
+                            failed = True
 
     except requests.exceptions.RequestException as e:
         print(f"Error downloading or processing zip from {zip_url}: {e}")
+        failed = True
     except zipfile.BadZipFile:
         print(f"Error: Bad zip file at {zip_url}")
+        failed = True
 
-    return extracted_data
+    return extracted_data, failed
 
 
 def push_batches_to_hub(files):
@@ -145,8 +149,9 @@ def push_batches_to_hub(files):
     private = os.getenv("HF_PRIVATE", "false").lower() == "true"
 
     if not hf_repo or not token:
-        print("HF_DATASET_REPO or HF_TOKEN not set. Skipping push to hub.")
-        return False
+        raise SystemExit(
+            "HF_DATASET_REPO and HF_TOKEN must be set to push batches to Hugging Face."
+        )
 
     datasets_list = []
     features = Features({
@@ -190,6 +195,8 @@ def main():
                         help="Delay between HTTP requests in seconds")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from previous run using visited.txt")
+    parser.add_argument("--years", type=int, default=2,
+                        help="Number of most recent years to crawl (0 for all)")
     args = parser.parse_args()
 
     if not os.path.exists(DATA_DIR):
@@ -208,9 +215,9 @@ def main():
         print("Could not find any years to process. Exiting.")
         return
 
-    # For demonstration, let's limit to a few years.
-    # Remove this slicing to crawl everything.
-    year_urls = year_urls[-2:] # Example: crawl the last 2 years found
+    if args.years > 0:
+        # Limit crawl to the most recent N years
+        year_urls = year_urls[-args.years:]
 
     for year_url in tqdm(year_urls, desc="Processing Years"):
         work_links = get_work_links(year_url)
@@ -219,9 +226,10 @@ def main():
                 break
             if work_url in visited:
                 continue
-            docs = process_work(work_url)
-            if docs:
-                save_visited(work_url)
+            docs, failed = process_work(work_url)
+            save_visited(work_url)
+            if failed:
+                print(f"Failed to fully process {work_url}")
             processed += len(docs)
             all_docs.extend(docs)
 

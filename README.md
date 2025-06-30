@@ -13,14 +13,18 @@ environment variables:
 - `HF_DATASET_REPO` – destination dataset repository (e.g. `my-org/sgd-ocr`).
 - `HF_PRIVATE` – optional `true`/`false` to create a private dataset.
 
+Both `HF_TOKEN` and `HF_DATASET_REPO` must be set for the crawler to upload
+batches to the hub. If either is missing the script exits with an error.
+
 Run the crawler locally or inside the workflow:
 
 ```bash
-python scripts/sgd_crawler.py --max-items 1000 --delay 0.5 --resume
+python scripts/sgd_crawler.py --max-items 1000 --delay 0.5 --years 5 --resume
 ```
 
-Use `--max-items` and `--delay` to control crawl size and politeness. The
-`--resume` flag continues from a previous run using `visited.txt`.
+Use `--max-items`, `--delay` and `--years` to control crawl size and
+politeness. The `--resume` flag continues from a previous run using
+`visited.txt`.
 Progress is tracked in this file, which is cached between runs and excluded
 from version control.
 
@@ -30,8 +34,9 @@ between requests.
 The crawler writes newline-delimited JSON batches to the `data/` directory,
 producing files like `sgd_batch_001.jsonl`.
 
-When `HF_TOKEN` and `HF_DATASET_REPO` are provided, newly created batches are
-automatically uploaded to the specified Hugging Face dataset repository.
+When both `HF_TOKEN` and `HF_DATASET_REPO` are set, newly created batches are
+uploaded to the specified Hugging Face dataset repository. The script will
+exit with an error if either variable is missing when an upload is attempted.
 
 Each HTTP request has a 15 second timeout and is retried twice. This prevents
 the workflow from hanging indefinitely when the server is unresponsive.
