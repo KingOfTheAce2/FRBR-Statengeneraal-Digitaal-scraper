@@ -1,5 +1,3 @@
-# scripts/sgd_crawler.py
-
 import os
 import argparse
 import requests
@@ -46,10 +44,11 @@ def load_visited(path=VISITED_FILE):
         return set(line.strip() for line in f if line.strip())
 
 
-def save_visited(url, path=VISITED_FILE):
-    """Append a processed work URL to the visited file."""
+def save_visited(urls, path=VISITED_FILE):
+    """Append a list of processed work URLs to the visited file."""
     with open(path, "a", encoding="utf-8") as f:
-        f.write(url + "\n")
+        for url in urls:
+            f.write(url + "\n")
 
 def get_year_links():
     """
@@ -68,7 +67,7 @@ def get_year_links():
             # always starts these names with a four digit year, so accept any
             # link that begins with four digits.
             year = link.strip('/').split('/')[-1]
-            if year[:4].isdigit():
+            if year and year[:4].isdigit():
                 year_links.append(f"{BASE_URL}/{year}/")
         return sorted(list(set(year_links)))
     except requests.exceptions.RequestException as e:
@@ -185,6 +184,7 @@ def push_batches_to_hub(files, repo=None, token=None):
             split="train",
             private=private,
             max_shard_size="500MB",
+            commit_message=f"Add {len(ds)} new documents from {SOURCE_NAME}"
         )
         print(f"Pushed {len(ds)} records to {hf_repo}")
         return True
@@ -216,12 +216,11 @@ def main():
         os.makedirs(DATA_DIR)
 
     visited = load_visited() if args.resume else set()
-    processed = 0
+    total_processed_count = 0
 
     print("Starting crawl of Statengeneraal Digitaal...")
-    all_docs = []
-    batch_counter = 1
-    new_files = []
+    all_new_docs = []
+    processed_work_urls = []
 
     year_urls = get_year_links()
     if not year_urls:
@@ -232,59 +231,83 @@ def main():
         # Limit crawl to the most recent N years
         year_urls = year_urls[-args.years:]
 
+    # --- CRAWLING PHASE ---
+    # In this phase, we collect all documents and the URLs of the works they came from.
+    # We do not write anything to disk yet to ensure atomicity.
     for year_url in tqdm(year_urls, desc="Processing Years"):
         work_links = [w for w in get_work_links(year_url) if w not in visited]
         if not work_links:
             continue
+        
+        if total_processed_count >= args.max_items:
+            print(f"Max items limit ({args.max_items}) reached. Stopping crawl.")
+            break
 
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
             futures = {executor.submit(process_work, w): w for w in work_links}
-            for future in tqdm(as_completed(futures), total=len(futures),
-                               desc=f"Processing Works in {year_url.split('/')[-2]}", leave=False):
+            progress_bar = tqdm(as_completed(futures), total=len(futures),
+                                desc=f"Processing Works in {year_url.split('/')[-2]}", leave=False)
+            
+            for future in progress_bar:
+                if total_processed_count >= args.max_items:
+                    # Cancel remaining futures
+                    for f in futures:
+                        f.cancel()
+                    break
+
                 work_url = futures[future]
-                if processed >= args.max_items:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    break
-                docs, failed = future.result()
-                save_visited(work_url)
-                if failed:
-                    print(f"Failed to fully process {work_url}")
-                processed += len(docs)
-                all_docs.extend(docs)
+                try:
+                    docs, failed = future.result()
+                    if not failed and docs:
+                        processed_work_urls.append(work_url)
+                        all_new_docs.extend(docs)
+                        total_processed_count += len(docs)
+                        progress_bar.set_postfix({"docs": total_processed_count})
+                    elif failed:
+                        print(f"Failed to fully process {work_url}")
 
-                if len(all_docs) >= BATCH_SIZE or processed >= args.max_items:
-                    filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
-                    with open(filename, "w", encoding="utf-8") as f:
-                        for item in all_docs:
-                            json.dump(item, f, ensure_ascii=False)
-                            f.write("\n")
-                    print(f"Saved batch to {filename}")
-                    new_files.append(filename)
-                    all_docs = []
-                    batch_counter += 1
-                if processed >= args.max_items:
-                    break
-                if args.delay:
-                    time.sleep(args.delay)
-
-        if processed >= args.max_items:
-            break
-
-    # Save any remaining documents
-    if all_docs:
-        filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
-        with open(filename, "w", encoding="utf-8") as f:
-            for item in all_docs:
-                json.dump(item, f, ensure_ascii=False)
-                f.write("\n")
-        print(f"Saved final batch to {filename}")
-        new_files.append(filename)
+                    if args.delay > 0:
+                        time.sleep(args.delay)
+                except Exception as e:
+                    print(f"Error processing future for {work_url}: {e}")
 
     print("Crawling finished.")
+
+    if not all_new_docs:
+        print("No new documents found to process.")
+        return
+
+    # --- BATCHING AND PUSHING PHASE ---
+    # Only if we have new documents, we proceed to save them and push them.
+    print(f"Found {len(all_new_docs)} new documents. Saving to batch files...")
+    new_files = []
+    batch_counter = 1
+    for i in range(0, len(all_new_docs), BATCH_SIZE):
+        batch = all_new_docs[i:i + BATCH_SIZE]
+        filename = os.path.join(DATA_DIR, f"sgd_batch_{batch_counter:03d}.jsonl")
+        with open(filename, "w", encoding="utf-8") as f:
+            for item in batch:
+                json.dump(item, f, ensure_ascii=False)
+                f.write("\n")
+        print(f"Saved batch to {filename}")
+        new_files.append(filename)
+        batch_counter += 1
+
     if new_files:
+        print("Pushing batches to Hugging Face Hub...")
         success = push_batches_to_hub(new_files, repo=args.hf_repo, token=args.hf_token)
-        if not success:
-            print("Failed to push some batches to Hugging Face.")
+        if success:
+            print("Push successful. Updating visited URLs file.")
+            save_visited(processed_work_urls)
+            # Optional: Clean up local batch files after successful push
+            for f in new_files:
+                try:
+                    os.remove(f)
+                except OSError as e:
+                    print(f"Error removing batch file {f}: {e}")
+        else:
+            print("Failed to push batches to Hugging Face.")
+            print("Visited URLs file will not be updated, so they will be retried on the next run.")
 
 if __name__ == "__main__":
     main()
