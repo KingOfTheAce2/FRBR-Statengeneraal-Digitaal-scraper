@@ -143,13 +143,16 @@ def process_work(work_url):
     return extracted_data, failed
 
 
-def push_batches_to_hub(files):
+def push_batches_to_hub(files, repo=None, token=None):
     """Upload the given batch files to a Hugging Face dataset repo.
 
-    Returns True on success, False otherwise.
+    Environment variables are used as a fallback when ``repo`` or ``token``
+    are not provided.
+
+    Returns ``True`` on success and ``False`` otherwise.
     """
-    hf_repo = os.getenv("HF_DATASET_REPO")
-    token = os.getenv("HF_TOKEN")
+    hf_repo = repo or os.getenv("HF_DATASET_REPO")
+    token = token or os.getenv("HF_TOKEN")
     private = os.getenv("HF_PRIVATE", "false").lower() == "true"
 
     if not hf_repo or not token:
@@ -203,6 +206,10 @@ def main():
                         help="Number of most recent years to crawl (0 for all)")
     parser.add_argument("--workers", type=int, default=1,
                         help="Number of concurrent workers for processing works")
+    parser.add_argument("--hf-repo", default=os.getenv("HF_DATASET_REPO"),
+                        help="Hugging Face dataset repository")
+    parser.add_argument("--hf-token", default=os.getenv("HF_TOKEN"),
+                        help="Hugging Face token with write access")
     args = parser.parse_args()
 
     if not os.path.exists(DATA_DIR):
@@ -275,7 +282,7 @@ def main():
 
     print("Crawling finished.")
     if new_files:
-        success = push_batches_to_hub(new_files)
+        success = push_batches_to_hub(new_files, repo=args.hf_repo, token=args.hf_token)
         if not success:
             print("Failed to push some batches to Hugging Face.")
 

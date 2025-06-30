@@ -7,7 +7,8 @@ pushes the plain text to a Hugging Face dataset.
 ## Usage
 
 The script is intended to run from GitHub Actions. Configure the following
-environment variables:
+environment variables (or pass their values via the `--hf-repo` and
+`--hf-token` command line arguments):
 
 - `HF_TOKEN` – Hugging Face token with write access.
 - `HF_DATASET_REPO` – destination dataset repository (e.g. `my-org/sgd-ocr`).
@@ -25,9 +26,13 @@ python scripts/sgd_crawler.py --max-items 1000 --delay 0.5 --years 5 --resume
 Use `--max-items`, `--delay` and `--years` to control crawl size and
 politeness. The optional `--workers` argument processes multiple works in
 parallel. The `--resume` flag continues from a previous run using
-`visited.txt`.
+`visited.txt`. Specify `--hf-repo` and `--hf-token` to override the
+corresponding environment variables when uploading to Hugging Face.
 Progress is tracked in this file, which is cached between runs and excluded
 from version control.
+
+To start a fresh crawl from the earliest available year (1814) remove the
+`visited.txt` cache and pass `--years 0`.
 
 Year directories on the portal do not always use a simple four digit format.
 Some are ranges such as `18141815` or include suffixes like `1815I`.
