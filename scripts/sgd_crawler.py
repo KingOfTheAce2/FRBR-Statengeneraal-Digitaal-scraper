@@ -62,10 +62,13 @@ def get_year_links():
         links = etree.HTML(response.content).xpath('//a/@href')
         year_links = []
         for link in links:
-            # Assuming year directories are numeric or in a specific format
+            # Year directories can be plain numbers (e.g. ``1814``) or
+            # ranges/suffixes such as ``18141815`` or ``1815I``.  The portal
+            # always starts these names with a four digit year, so accept any
+            # link that begins with four digits.
             year = link.strip('/').split('/')[-1]
-            if year.isdigit() and len(year) == 4:
-                 year_links.append(f"{BASE_URL}/{year}/")
+            if year[:4].isdigit():
+                year_links.append(f"{BASE_URL}/{year}/")
         return sorted(list(set(year_links)))
     except requests.exceptions.RequestException as e:
         print(f"Error fetching year links: {e}")

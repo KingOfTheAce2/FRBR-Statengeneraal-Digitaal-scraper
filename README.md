@@ -28,6 +28,10 @@ politeness. The `--resume` flag continues from a previous run using
 Progress is tracked in this file, which is cached between runs and excluded
 from version control.
 
+Year directories on the portal do not always use a simple four digit format.
+Some are ranges such as `18141815` or include suffixes like `1815I`.
+The crawler therefore accepts any directory that starts with a four digit year.
+
 By default the crawler processes at most 500 XML files with a 0.2 second delay
 between requests.
 
