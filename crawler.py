@@ -24,7 +24,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s: %(message)s"
 )
 
-
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
@@ -47,9 +46,7 @@ def strip_text(raw: str) -> str:
     return tree.text_content().strip()
 
 
-def fetch_ocr_xml(url: str) -> str:
-    """Given an item URL ending in '/1', fetch its OCR XML text."""
-    ocr_page = url.rstrip('/') + '/ocr'
+def _download_from_ocr_page(ocr_page: str) -> str:
     resp = requests.get(ocr_page, timeout=30)
     resp.raise_for_status()
     doc = html.fromstring(resp.content)
@@ -62,6 +59,33 @@ def fetch_ocr_xml(url: str) -> str:
     xresp = requests.get(xml_url, timeout=30)
     xresp.raise_for_status()
     return xresp.text
+
+
+def fetch_ocr_xml(item_url: str) -> str:
+    """Given an item URL ending in '/1', fetch its OCR XML text, with fallback for PDF-only items."""
+    # First attempt direct OCR page
+    ocr_page = item_url.rstrip('/') + '/ocr'
+    try:
+        return _download_from_ocr_page(ocr_page)
+    except requests.HTTPError as he:
+        if he.response.status_code != 404:
+            raise
+        logging.info(f"Direct OCR not found for {item_url}, trying PDF fallback.")
+    except ValueError:
+        logging.info(f"Direct OCR link missing on {item_url}, trying PDF fallback.")
+
+    # Fallback: parse PDF link from item landing page
+    resp = requests.get(item_url, timeout=30)
+    resp.raise_for_status()
+    page = html.fromstring(resp.content)
+    pdf_link = page.xpath("//div[contains(@class,'alert__inner')]//a[contains(@href,'/frbr/sgd/') and contains(@href,'/pdf/')]/@href")
+    if not pdf_link:
+        raise ValueError(f"No PDF link found on landing page {item_url}")
+    pdf_url = urljoin(item_url, pdf_link[0])
+    base = pdf_url.split('/pdf/')[0]
+    fallback_ocr = base + '/ocr'
+    logging.info(f"Fallback OCR page: {fallback_ocr}")
+    return _download_from_ocr_page(fallback_ocr)
 
 
 def fetch_and_process():
@@ -109,7 +133,11 @@ def fetch_and_process():
                 if not text:
                     logging.info(f"Empty text for {item_url}; skipping.")
                     continue
-                new_records.append({"URL": item_url + "/ocr", "Content": text, "Source": "Staten-Generaal Digitaal"})
+                new_records.append({
+                    "URL": item_url + "/ocr",
+                    "Content": text,
+                    "Source": "Staten-Generaal Digitaal"
+                })
                 processed += 1
                 logging.info(f"Processed record {processed}/{MAX_RECORDS_PER_RUN}")
             except Exception as e:
