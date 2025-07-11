@@ -11,7 +11,7 @@ SRU_URL               = os.getenv("SRU_URL", "https://repository.overheid.nl/sru
 CQL_QUERY             = os.getenv("CQL_QUERY", "c.product-area==sgd")
 SRU_VERSION           = os.getenv("SRU_VERSION", "2.0")
 SRU_BATCH_SIZE        = int(os.getenv("SRU_BATCH_SIZE", "100"))
-MAX_RECORDS_PER_RUN   = int(os.getenv("MAX_RECORDS_PER_RUN", "1000"))
+MAX_RECORDS_PER_RUN   = int(os.getenv("MAX_RECORDS_PER_RUN", "250"))
 SHARD_SIZE            = int(os.getenv("SHARD_SIZE", "250"))
 STATE_FILE            = os.getenv("STATE_FILE", "state.json")
 DATA_DIR              = os.getenv("DATA_DIR", "data")
@@ -38,15 +38,22 @@ def save_state(state):
         json.dump(state, f)
 
 
-def strip_text(raw: str) -> str:
-    """Strip HTML/XML tags, scripts, styles to extract visible text."""
-    tree = html.fromstring(raw)
-    for bad in tree.xpath('//script|//style'):
-        bad.drop_tree()
-    return tree.text_content().strip()
+def strip_text(raw):
+    """Extract visible text from HTML or XML input."""
+    if isinstance(raw, (bytes, bytearray)):
+        # Parse XML bytes directly, avoiding unicode+declaration issues
+        tree = etree.fromstring(raw)
+        text = ''.join(tree.itertext())
+        return text.strip()
+    else:
+        # HTML input as str
+        tree = html.fromstring(raw)
+        for bad in tree.xpath('//script|//style'):
+            bad.drop_tree()
+        return tree.text_content().strip()
 
 
-def _download_from_ocr_page(ocr_page: str) -> str:
+def _download_from_ocr_page(ocr_page: str) -> bytes:
     resp = requests.get(ocr_page, timeout=30)
     resp.raise_for_status()
     doc = html.fromstring(resp.content)
@@ -58,12 +65,11 @@ def _download_from_ocr_page(ocr_page: str) -> str:
     logging.info(f"Downloading XML: {xml_url}")
     xresp = requests.get(xml_url, timeout=30)
     xresp.raise_for_status()
-    return xresp.text
+    return xresp.content
 
 
-def fetch_ocr_xml(item_url: str) -> str:
-    """Given an item URL ending in '/1', fetch its OCR XML text, with fallback for PDF-only items."""
-    # First attempt direct OCR page
+def fetch_ocr_xml(item_url: str) -> bytes:
+    """Given an item URL ending in '/1', fetch its OCR XML as bytes, with PDF fallback."""
     ocr_page = item_url.rstrip('/') + '/ocr'
     try:
         return _download_from_ocr_page(ocr_page)
@@ -128,8 +134,8 @@ def fetch_and_process():
                 continue
             item_url = urls[0].strip()
             try:
-                xml_body = fetch_ocr_xml(item_url)
-                text = strip_text(xml_body)
+                xml_bytes = fetch_ocr_xml(item_url)
+                text = strip_text(xml_bytes)
                 if not text:
                     logging.info(f"Empty text for {item_url}; skipping.")
                     continue
