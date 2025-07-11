@@ -83,10 +83,10 @@ def fetch_and_process():
                 break
 
             for rec in records:
-                # Try preferredUrl first
-                urls = rec.findall(".//*[local-name()='prefferedUrl']") or rec.findall(".//*[local-name()='itemUrl']")
+                # Use full XPath for element functions
+                urls = rec.xpath(".//*[local-name()='preferredUrl']") or rec.xpath(".//*[local-name()='itemUrl']")
                 for u in urls:
-                    url = u.text
+                    url = u.text.strip() if u.text else None
                     if not url:
                         continue
                     logging.info(f"Fetching content: {url}")
@@ -117,7 +117,6 @@ def fetch_and_process():
             save_state(state)
             logging.info(f"Batch complete; next start={start}")
 
-            # Stop if we've fetched all
             if total and start > total:
                 logging.info("Reached or exceeded total count; done.")
                 break
@@ -142,7 +141,6 @@ def upload_to_hf(filepath: str):
         logging.info(f"Uploaded {filepath} to Hugging Face dataset {HF_DATASET_REPO}")
     except Exception as e:
         logging.error(f"Failed to upload to HF: {e}")
-
 
 if __name__ == '__main__':
     logging.info("Starting SGD crawler.")
