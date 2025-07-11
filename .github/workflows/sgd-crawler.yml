@@ -4,7 +4,7 @@ on:
   schedule:
     # Runs daily at 02:00 UTC
     - cron: '0 2 * * *'
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   crawl-and-upload:
@@ -29,8 +29,7 @@ jobs:
       - name: Restore crawler state
         uses: actions/cache@v3
         with:
-          path: |
-            state.json
+          path: state.json
           key: state-json-${{ runner.os }}-${{ env.HF_DATASET_REPO }}
           restore-keys: state-json-
 
@@ -41,13 +40,14 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'github-actions@github.com'
-          if [ -f sgd.jsonl ]; then
-            git add sgd.jsonl state.json
+          if ls data/*.jsonl >/dev/null 2>&1; then
+            git add data/*.jsonl state.json
             if [ -n "$(git status --porcelain)" ]; then
-              git commit -m "Data: New batch from Statengeneraal Digitaal"
+              git commit -m "Data: Add new shards from Statengeneraal Digitaal"
               git push
             else
               echo "No changes to commit."
             fi
           else
-            echo "No data file found."
+            echo "No shard files to commit."
+          fi
