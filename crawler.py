@@ -2,18 +2,21 @@ import os
 import json
 import logging
 import requests
+from urllib.parse import urljoin
 from lxml import etree, html
 from huggingface_hub import HfApi
 
 # Configuration (can be overridden via environment variables)
-SRU_URL            = os.getenv("SRU_URL", "https://repository.overheid.nl/sru")
-CQL_QUERY          = os.getenv("CQL_QUERY", "c.product-area==sgd")
-SRU_VERSION        = os.getenv("SRU_VERSION", "2.0")
-BATCH_SIZE         = int(os.getenv("BATCH_SIZE", "100"))
-STATE_FILE         = os.getenv("STATE_FILE", "state.json")
-OUTPUT_FILE        = os.getenv("OUTPUT_FILE", "sgd.jsonl")
-HF_DATASET_REPO    = os.getenv("HF_DATASET_REPO")  # Hugging Face dataset repo ID
-HF_TOKEN           = os.getenv("HF_TOKEN")
+SRU_URL               = os.getenv("SRU_URL", "https://repository.overheid.nl/sru")
+CQL_QUERY             = os.getenv("CQL_QUERY", "c.product-area==sgd")
+SRU_VERSION           = os.getenv("SRU_VERSION", "2.0")
+SRU_BATCH_SIZE        = int(os.getenv("SRU_BATCH_SIZE", "100"))
+MAX_RECORDS_PER_RUN   = int(os.getenv("MAX_RECORDS_PER_RUN", "1000"))
+SHARD_SIZE            = int(os.getenv("SHARD_SIZE", "250"))
+STATE_FILE            = os.getenv("STATE_FILE", "state.json")
+DATA_DIR              = os.getenv("DATA_DIR", "data")
+HF_DATASET_REPO       = os.getenv("HF_DATASET_REPO")  # Hugging Face dataset repo ID
+HF_TOKEN              = os.getenv("HF_TOKEN")
 
 # Logging setup
 logging.basicConfig(
@@ -36,114 +39,129 @@ def save_state(state):
         json.dump(state, f)
 
 
-def strip_html(raw_html: str) -> str:
-    """
-    Strip HTML tags, scripts, styles to extract visible text.
-    """
-    doc = html.fromstring(raw_html)
-    for bad in doc.xpath('//script|//style'):
+def strip_text(raw: str) -> str:
+    """Strip HTML/XML tags, scripts, styles to extract visible text."""
+    tree = html.fromstring(raw)
+    for bad in tree.xpath('//script|//style'):
         bad.drop_tree()
-    return doc.text_content().strip()
+    return tree.text_content().strip()
+
+
+def fetch_ocr_xml(url: str) -> str:
+    """Given an item URL ending in '/1', fetch its OCR XML text."""
+    ocr_page = url.rstrip('/') + '/ocr'
+    resp = requests.get(ocr_page, timeout=30)
+    resp.raise_for_status()
+    doc = html.fromstring(resp.content)
+    # find XML download link
+    link = doc.xpath("//ul[contains(@class,'list--sources')]//a[contains(@class,'button--primary')]/@href")
+    if not link:
+        raise ValueError(f"No OCR XML link found on {ocr_page}")
+    xml_url = urljoin(ocr_page, link[0])
+    logging.info(f"Downloading XML: {xml_url}")
+    xresp = requests.get(xml_url, timeout=30)
+    xresp.raise_for_status()
+    return xresp.text
 
 
 def fetch_and_process():
+    os.makedirs(DATA_DIR, exist_ok=True)
     state = load_state()
     start = state.get("start", 1)
     total = None
+    processed = 0
+    new_records = []
 
-    with open(OUTPUT_FILE, "a", encoding="utf-8") as out_f:
-        while True:
-            params = {
-                "version": SRU_VERSION,
-                "operation": "searchRetrieve",
-                "query": CQL_QUERY,
-                "startRecord": start,
-                "maximumRecords": BATCH_SIZE,
-            }
-            logging.info(f"Request SRU batch: start={start}")
+    while processed < MAX_RECORDS_PER_RUN:
+        params = {
+            "version": SRU_VERSION,
+            "operation": "searchRetrieve",
+            "query": CQL_QUERY,
+            "startRecord": start,
+            "maximumRecords": SRU_BATCH_SIZE,
+        }
+        logging.info(f"Request SRU batch: start={start}")
+        resp = requests.get(SRU_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        root = etree.fromstring(resp.content)
+
+        if total is None:
+            sub = root.find('.//{http://www.w3.org/2005/Atom}subtitle')
+            if sub is not None and ':' in sub.text:
+                total = int(sub.text.split(':', 1)[1])
+                logging.info(f"Total records to fetch: {total}")
+
+        records = root.findall('.//{*}gzd')
+        if not records:
+            logging.info("No more records returned; exiting.")
+            break
+
+        for rec in records:
+            if processed >= MAX_RECORDS_PER_RUN:
+                break
+            urls = rec.xpath(".//*[local-name()='preferredUrl']/text()") or rec.xpath(".//*[local-name()='itemUrl']/text()")
+            if not urls:
+                continue
+            item_url = urls[0].strip()
             try:
-                resp = requests.get(SRU_URL, params=params, timeout=30)
-                resp.raise_for_status()
+                xml_body = fetch_ocr_xml(item_url)
+                text = strip_text(xml_body)
+                if not text:
+                    logging.info(f"Empty text for {item_url}; skipping.")
+                    continue
+                new_records.append({"URL": item_url + "/ocr", "Content": text, "Source": "Staten-Generaal Digitaal"})
+                processed += 1
+                logging.info(f"Processed record {processed}/{MAX_RECORDS_PER_RUN}")
             except Exception as e:
-                logging.error(f"Failed SRU request: {e}")
-                break
+                logging.warning(f"Skipping {item_url}: {e}")
 
-            root = etree.fromstring(resp.content)
+        start += len(records)
+        state['start'] = start
+        save_state(state)
+        if total and start > total:
+            logging.info("Reached total count; done.")
+            break
 
-            # On first batch, read total count if available
-            if total is None:
-                sub = root.find('.//{http://www.w3.org/2005/Atom}subtitle')
-                if sub is not None and ':' in sub.text:
-                    total = int(sub.text.split(':', 1)[1])
-                    logging.info(f"Total records to fetch: {total}")
-
-            records = root.findall('.//{*}gzd')
-            if not records:
-                logging.info("No more records returned; exiting loop.")
-                break
-
-            for rec in records:
-                # Use full XPath for element functions
-                urls = rec.xpath(".//*[local-name()='preferredUrl']") or rec.xpath(".//*[local-name()='itemUrl']")
-                for u in urls:
-                    url = u.text.strip() if u.text else None
-                    if not url:
-                        continue
-                    logging.info(f"Fetching content: {url}")
-                    try:
-                        dr = requests.get(url, timeout=30)
-                        dr.raise_for_status()
-                        content_type = dr.headers.get('Content-Type', '')
-
-                        if 'html' in content_type or 'xml' in content_type:
-                            text = strip_html(dr.text)
-                        else:
-                            logging.info(f"Skipping unsupported content-type: {content_type}")
-                            continue
-
-                        if not text:
-                            logging.info("Empty content after stripping; skipping.")
-                            continue
-
-                        obj = {"URL": url, "Content": text, "Source": "SGD"}
-                        out_f.write(json.dumps(obj, ensure_ascii=False) + "\n")
-                    except Exception as e:
-                        logging.warning(f"Failed to fetch/process {url}: {e}")
-                        continue
-
-            # Advance state
-            start += len(records)
-            state['start'] = start
-            save_state(state)
-            logging.info(f"Batch complete; next start={start}")
-
-            if total and start > total:
-                logging.info("Reached or exceeded total count; done.")
-                break
-
-    return OUTPUT_FILE
+    logging.info(f"Finished fetching {processed} records this run.")
+    return new_records
 
 
-def upload_to_hf(filepath: str):
+def write_shards(records):
+    shard_files = []
+    for idx in range(0, len(records), SHARD_SIZE):
+        shard = records[idx: idx + SHARD_SIZE]
+        num = idx // SHARD_SIZE + 1
+        fname = os.path.join(DATA_DIR, f"sgd_shard_{num}.jsonl")
+        with open(fname, "w", encoding="utf-8") as f:
+            for obj in shard:
+                f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        shard_files.append(fname)
+    return shard_files
+
+
+def upload_shards(shard_files):
     if not HF_DATASET_REPO or not HF_TOKEN:
         logging.warning("HF_DATASET_REPO or HF_TOKEN not set; skipping upload.")
         return
     api = HfApi()
-    try:
-        api.create_repo(HF_DATASET_REPO, repo_type="dataset", token=HF_TOKEN, exist_ok=True)
+    api.create_repo(HF_DATASET_REPO, repo_type="dataset", token=HF_TOKEN, exist_ok=True)
+    for shard in shard_files:
+        logging.info(f"Uploading shard {shard}")
         api.upload_file(
-            path_or_fileobj=filepath,
-            path_in_repo=os.path.basename(filepath),
+            path_or_fileobj=shard,
+            path_in_repo=os.path.basename(shard),
             repo_id=HF_DATASET_REPO,
             repo_type="dataset",
             token=HF_TOKEN
         )
-        logging.info(f"Uploaded {filepath} to Hugging Face dataset {HF_DATASET_REPO}")
-    except Exception as e:
-        logging.error(f"Failed to upload to HF: {e}")
+
 
 if __name__ == '__main__':
     logging.info("Starting SGD crawler.")
-    out_path = fetch_and_process()
-    logging.info(f"Data saved to {out_path}")
-    upload_to_hf(out_path)
+    records = fetch_and_process()
+    if records:
+        shards = write_shards(records)
+        upload_shards(shards)
+        logging.info(f"Uploaded {len(shards)} shard(s) to Hugging Face.")
+    else:
+        logging.info("No new records to process this run.")
