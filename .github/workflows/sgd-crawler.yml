@@ -1,5 +1,9 @@
 name: Crawl Statengeneraal Digitaal
 
+# Grant write permissions to push commits
+permissions:
+  contents: write
+
 on:
   schedule:
     # Runs daily at 02:00 UTC
@@ -12,7 +16,6 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_DATASET_REPO: ${{ secrets.HF_DATASET_REPO }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repository
