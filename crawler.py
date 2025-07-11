@@ -11,8 +11,8 @@ SRU_URL               = os.getenv("SRU_URL", "https://repository.overheid.nl/sru
 CQL_QUERY             = os.getenv("CQL_QUERY", "c.product-area==sgd")
 SRU_VERSION           = os.getenv("SRU_VERSION", "2.0")
 SRU_BATCH_SIZE        = int(os.getenv("SRU_BATCH_SIZE", "100"))
-MAX_RECORDS_PER_RUN   = int(os.getenv("MAX_RECORDS_PER_RUN", "250"))
-SHARD_SIZE            = int(os.getenv("SHARD_SIZE", "250"))
+MAX_RECORDS_PER_RUN   = int(os.getenv("MAX_RECORDS_PER_RUN", "50"))
+SHARD_SIZE            = int(os.getenv("SHARD_SIZE", "50"))
 STATE_FILE            = os.getenv("STATE_FILE", "state.json")
 DATA_DIR              = os.getenv("DATA_DIR", "data")
 HF_DATASET_REPO       = os.getenv("HF_DATASET_REPO")  # Hugging Face dataset repo ID
