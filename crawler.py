@@ -6,14 +6,14 @@ from lxml import etree, html
 from huggingface_hub import HfApi
 
 # Configuration (can be overridden via environment variables)
-SRU_URL       = os.getenv("SRU_URL", "https://repository.overheid.nl/sru")
-CQL_QUERY     = os.getenv("CQL_QUERY", "c.product-area==sgd")
-SRU_VERSION   = os.getenv("SRU_VERSION", "2.0")
-BATCH_SIZE    = int(os.getenv("BATCH_SIZE", "100"))
-STATE_FILE    = os.getenv("STATE_FILE", "state.json")
-OUTPUT_FILE   = os.getenv("OUTPUT_FILE", "sgd.jsonl")
-HF_REPO_ID    = os.getenv("HF_REPO_ID")
-HF_TOKEN      = os.getenv("HF_TOKEN")
+SRU_URL            = os.getenv("SRU_URL", "https://repository.overheid.nl/sru")
+CQL_QUERY          = os.getenv("CQL_QUERY", "c.product-area==sgd")
+SRU_VERSION        = os.getenv("SRU_VERSION", "2.0")
+BATCH_SIZE         = int(os.getenv("BATCH_SIZE", "100"))
+STATE_FILE         = os.getenv("STATE_FILE", "state.json")
+OUTPUT_FILE        = os.getenv("OUTPUT_FILE", "sgd.jsonl")
+HF_DATASET_REPO    = os.getenv("HF_DATASET_REPO")  # Hugging Face dataset repo ID
+HF_TOKEN           = os.getenv("HF_TOKEN")
 
 # Logging setup
 logging.basicConfig(
@@ -27,7 +27,7 @@ def load_state():
         try:
             return json.load(open(STATE_FILE, encoding="utf-8"))
         except Exception:
-            pass
+            logging.warning("Could not read state file; starting from scratch.")
     return {"start": 1}
 
 
@@ -95,9 +95,7 @@ def fetch_and_process():
                         dr.raise_for_status()
                         content_type = dr.headers.get('Content-Type', '')
 
-                        if 'html' in content_type:
-                            text = strip_html(dr.text)
-                        elif 'xml' in content_type:
+                        if 'html' in content_type or 'xml' in content_type:
                             text = strip_html(dr.text)
                         else:
                             logging.info(f"Skipping unsupported content-type: {content_type}")
@@ -128,20 +126,20 @@ def fetch_and_process():
 
 
 def upload_to_hf(filepath: str):
-    if not HF_REPO_ID or not HF_TOKEN:
-        logging.warning("HF_REPO_ID or HF_TOKEN not set; skipping upload.")
+    if not HF_DATASET_REPO or not HF_TOKEN:
+        logging.warning("HF_DATASET_REPO or HF_TOKEN not set; skipping upload.")
         return
     api = HfApi()
     try:
-        api.create_repo(HF_REPO_ID, repo_type="dataset", token=HF_TOKEN, exist_ok=True)
+        api.create_repo(HF_DATASET_REPO, repo_type="dataset", token=HF_TOKEN, exist_ok=True)
         api.upload_file(
             path_or_fileobj=filepath,
             path_in_repo=os.path.basename(filepath),
-            repo_id=HF_REPO_ID,
+            repo_id=HF_DATASET_REPO,
             repo_type="dataset",
             token=HF_TOKEN
         )
-        logging.info(f"Uploaded {filepath} to HuggingFace repo {HF_REPO_ID}")
+        logging.info(f"Uploaded {filepath} to Hugging Face dataset {HF_DATASET_REPO}")
     except Exception as e:
         logging.error(f"Failed to upload to HF: {e}")
 
