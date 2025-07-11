@@ -1,5 +1,3 @@
-# .github/workflows/sgd-crawler.yml
-
 name: Crawl Statengeneraal Digitaal
 
 on:
@@ -14,7 +12,6 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_DATASET_REPO: ${{ secrets.HF_DATASET_REPO }}
-      HF_PRIVATE: ${{ secrets.HF_PRIVATE || 'false' }}
 
     steps:
       - name: Checkout repository
@@ -24,33 +21,33 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip' # cache pip dependencies
+          cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore crawl cache
+      - name: Restore crawler state
         uses: actions/cache@v3
         with:
-          path: visited.txt
-          key: visited-${{ github.run_id }}
-          restore-keys: visited-
+          path: |
+            state.json
+          key: state-json-${{ runner.os }}-${{ env.HF_DATASET_REPO }}
+          restore-keys: state-json-
 
       - name: Run crawler script
-        run: python scripts/sgd_crawler.py --resume --workers 4
+        run: python crawler.py
 
-      - name: Commit and push changes
+      - name: Commit and push data
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'github-actions@github.com'
-          if ls data/*.jsonl >/dev/null 2>&1; then
-            git add data/*.jsonl
+          if [ -f sgd.jsonl ]; then
+            git add sgd.jsonl state.json
             if [ -n "$(git status --porcelain)" ]; then
-              git commit -m "Data: Add new batch from Statengeneraal Digitaal"
+              git commit -m "Data: New batch from Statengeneraal Digitaal"
               git push
             else
-              echo "No new data to commit."
+              echo "No changes to commit."
             fi
           else
-            echo "No batch files to commit."
-          fi
+            echo "No data file found."
