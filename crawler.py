@@ -27,10 +27,27 @@ logging.basicConfig(
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
-            return json.load(open(STATE_FILE, encoding="utf-8"))
+            state = json.load(open(STATE_FILE, encoding="utf-8"))
         except Exception:
             logging.warning("Could not read state file; starting from scratch.")
-    return {"start": 1}
+            state = {}
+    else:
+        state = {}
+
+    # Defaults for new keys
+    if "start" not in state:
+        state["start"] = 1
+    if "next_shard" not in state:
+        try:
+            existing = [
+                int(f.split("_")[-1].split(".")[0])
+                for f in os.listdir(DATA_DIR)
+                if f.startswith("sgd_shard_") and f.endswith(".jsonl")
+            ]
+            state["next_shard"] = max(existing) + 1 if existing else 1
+        except FileNotFoundError:
+            state["next_shard"] = 1
+    return state
 
 
 def save_state(state):
@@ -94,9 +111,8 @@ def fetch_ocr_xml(item_url: str) -> bytes:
     return _download_from_ocr_page(fallback_ocr)
 
 
-def fetch_and_process():
+def fetch_and_process(state):
     os.makedirs(DATA_DIR, exist_ok=True)
-    state = load_state()
     start = state.get("start", 1)
     total = None
     processed = 0
@@ -160,25 +176,34 @@ def fetch_and_process():
     return new_records
 
 
-def write_shards(records):
+def write_shards(records, state):
     shard_files = []
     for idx in range(0, len(records), SHARD_SIZE):
         shard = records[idx: idx + SHARD_SIZE]
-        num = idx // SHARD_SIZE + 1
-        fname = os.path.join(DATA_DIR, f"sgd_shard_{num}.jsonl")
+        shard_num = state["next_shard"] + idx // SHARD_SIZE
+        fname = os.path.join(DATA_DIR, f"sgd_shard_{shard_num}.jsonl")
         with open(fname, "w", encoding="utf-8") as f:
             for obj in shard:
                 f.write(json.dumps(obj, ensure_ascii=False) + "\n")
         shard_files.append(fname)
+    state["next_shard"] += len(shard_files)
+    save_state(state)
     return shard_files
 
 
-def upload_shards(shard_files):
+def upload_shards():
     if not HF_DATASET_REPO or not HF_TOKEN:
         logging.warning("HF_DATASET_REPO or HF_TOKEN not set; skipping upload.")
         return
     api = HfApi()
     api.create_repo(HF_DATASET_REPO, repo_type="dataset", token=HF_TOKEN, exist_ok=True)
+    shard_files = sorted(
+        [
+            os.path.join(DATA_DIR, f)
+            for f in os.listdir(DATA_DIR)
+            if f.startswith("sgd_shard_") and f.endswith(".jsonl")
+        ]
+    )
     for shard in shard_files:
         logging.info(f"Uploading shard {shard}")
         api.upload_file(
@@ -192,10 +217,13 @@ def upload_shards(shard_files):
 
 if __name__ == '__main__':
     logging.info("Starting SGD crawler.")
-    records = fetch_and_process()
+    state = load_state()
+    records = fetch_and_process(state)
+    new_shards = []
     if records:
-        shards = write_shards(records)
-        upload_shards(shards)
-        logging.info(f"Uploaded {len(shards)} shard(s) to Hugging Face.")
+        new_shards = write_shards(records, state)
+    upload_shards()
+    if new_shards:
+        logging.info(f"Uploaded {len(new_shards)} new shard(s) to Hugging Face.")
     else:
         logging.info("No new records to process this run.")
