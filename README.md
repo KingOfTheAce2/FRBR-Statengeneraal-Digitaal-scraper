@@ -41,8 +41,9 @@ The crawler therefore accepts any directory that starts with a four digit year.
 By default the crawler processes at most 500 XML files with a 0.2 second delay
 between requests.
 
-The crawler writes newline-delimited JSON batches to the `data/` directory,
-producing files like `sgd_batch_001.jsonl`.
+The crawler writes newline-delimited JSON shards to the `data/` directory,
+producing files like `sgd_shard_1.jsonl`. The next shard number is persisted
+in `state.json` so new runs append files instead of overwriting existing ones.
 
 When both `HF_TOKEN` and `HF_DATASET_REPO` are set, newly created batches are
 uploaded to the specified Hugging Face dataset repository. The script will
