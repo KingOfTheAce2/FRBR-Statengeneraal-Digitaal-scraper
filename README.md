@@ -58,7 +58,7 @@ the number of HTTP requests.
 
 The included GitHub workflow runs daily and keeps track of processed files
 using a cached `visited.txt`. Results are uploaded to the public dataset
-`vGassen/Dutch-Statengeneraal-Digitaal-Historical`.
+`vGassen/Dutch-Open-Data-Staten-Generaal-Digitaal-Historical`.
 
 See `.github/workflows/sgd-crawler.yml` for a complete example.
 
