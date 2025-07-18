@@ -43,21 +43,21 @@ jobs:
       - name: Run crawler script
         run: python crawler.py
 
- - name: Update local branch
-    run: git pull --rebase origin main
+      - name: Update local branch
+        run: git pull --rebase origin main
 
-  - name: Commit and push data
-    run: |
-      git config --global user.name 'GitHub Actions'
-      git config --global user.email 'github-actions@github.com'
-      if ls data/*.jsonl >/dev/null 2>&1; then
-        git add data/*.jsonl state.json
-        if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "Data: Add new shards from Statengeneraal Digitaal"
-          git push
-        else
-          echo "No changes to commit."
-        fi
-      else
-        echo "No shard files to commit."
-      fi
+      - name: Commit and push data
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'github-actions@github.com'
+          if ls data/*.jsonl >/dev/null 2>&1; then
+            git add data/*.jsonl state.json
+            if [ -n "$(git status --porcelain)" ]; then
+              git commit -m "Data: Add new shards from Statengeneraal Digitaal"
+              git push
+            else
+              echo "No changes to commit."
+            fi
+          else
+            echo "No shard files to commit."
+          fi
