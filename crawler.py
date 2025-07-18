@@ -11,7 +11,7 @@ SRU_URL               = os.getenv("SRU_URL", "https://repository.overheid.nl/sru
 CQL_QUERY             = os.getenv("CQL_QUERY", "c.product-area==sgd")
 SRU_VERSION           = os.getenv("SRU_VERSION", "2.0")
 SRU_BATCH_SIZE        = int(os.getenv("SRU_BATCH_SIZE", "100"))
-MAX_RECORDS_PER_RUN   = int(os.getenv("MAX_RECORDS_PER_RUN", "5000"))
+MAX_RECORDS_PER_RUN   = int(os.getenv("MAX_RECORDS_PER_RUN", "4000"))
 SHARD_SIZE            = int(os.getenv("SHARD_SIZE", "250"))
 STATE_FILE            = os.getenv("STATE_FILE", "state.json")
 DATA_DIR              = os.getenv("DATA_DIR", "data")
